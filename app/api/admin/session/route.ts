@@ -3,11 +3,11 @@ import {env} from 'cloudflare:workers';
 import {eq} from 'drizzle-orm';
 import {getDb} from '@/db';
 import {users} from '@/db/schema';
-import {authorized,createSession,revokeSession,sameOrigin,secureCookie,SESSION_COOKIE,SESSION_SECONDS} from '@/lib/admin-auth';
+import {sessionUser,createSession,revokeSession,sameOrigin,secureCookie,SESSION_COOKIE,SESSION_SECONDS} from '@/lib/admin-auth';
 import {constantTimeEqual,passwordHash,PASSWORD_ITERATIONS} from '@/lib/password';
 import {rateLimit} from '@/lib/rate-limit';
 const response=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store'}});
-export async function GET(req:NextRequest){return response({authenticated:await authorized(req)})}
+export async function GET(req:NextRequest){const user=await sessionUser(req);return response({authenticated:!!user,user})}
 export async function POST(req:NextRequest){
   if(!sameOrigin(req))return response({error:'Acceso no autorizado.'},403);
   if(!env.AUTH_PEPPER)return response({error:'El acceso administrador no está configurado.'},503);
@@ -23,7 +23,7 @@ export async function POST(req:NextRequest){
     const [user]=await getDb().select().from(users).where(eq(users.username,username));
     // Run the hash even for unknown users to reduce account enumeration by timing.
     const derived=await passwordHash(body.password,user?.passwordSalt??'unknown-user-salt',env.AUTH_PEPPER,user?.passwordIterations??PASSWORD_ITERATIONS);
-    if(!user||!user.active||user.role!=='admin'||!constantTimeEqual(derived,user.passwordHash))return response({error:'Usuario o contraseña incorrectos.'},401);
+    if(!user||!user.active||!['owner','staff'].includes(user.role)||!constantTimeEqual(derived,user.passwordHash))return response({error:'Usuario o contraseña incorrectos.'},401);
     await revokeSession(req);
     const result=response({ok:true});
     result.cookies.set(SESSION_COOKIE,await createSession(user.id),{httpOnly:true,secure:secureCookie(),sameSite:'strict',path:'/',maxAge:SESSION_SECONDS});
