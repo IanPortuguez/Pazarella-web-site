@@ -1,6 +1,8 @@
+import {releaseExpiredReservations} from '../lib/order-stock';
 import handler from 'vinext/server/fetch-handler';
 
 export default {
+  async scheduled(){await releaseExpiredReservations()},
   async fetch(request:Request,env:Cloudflare.Env,ctx:ExecutionContext) {
     const response=await handler.fetch(request,env,ctx);
     const result=new Response(response.body,response);
