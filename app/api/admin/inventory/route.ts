@@ -4,6 +4,8 @@ import {getDb} from '@/db';
 import {inventoryProducts,categories,inventoryOptions} from '@/db/schema';
 import {authorized,sameOrigin} from '@/lib/admin-auth';
 import {eq,and,sql} from 'drizzle-orm';
+import {releaseExpiredReservations} from '@/lib/order-stock';
+import {processProductImage} from '@/lib/image-upload';
 import {buildVariants} from '@/lib/inventory-matrix';
 import type {Variant} from '@/lib/catalog';
 const jsonError=(message:string,status=400)=>NextResponse.json({error:message},{status});
@@ -18,8 +20,8 @@ export async function POST(req:NextRequest){
   const file=f.get('image');
   if(file instanceof File&&file.size>0){
    if(file.size>3_000_000)return jsonError('Selecciona una imagen JPG, PNG o WebP de hasta 3 MB.');
-   const bytes=new Uint8Array(await file.arrayBuffer());let type='',ext='';if(bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff){type='image/jpeg';ext='jpg'}else if(bytes[0]===0x89&&bytes[1]===0x50&&bytes[2]===0x4e&&bytes[3]===0x47){type='image/png';ext='png'}else if(bytes.length>12&&String.fromCharCode(...bytes.slice(0,4))==='RIFF'&&String.fromCharCode(...bytes.slice(8,12))==='WEBP'){type='image/webp';ext='webp'}else return jsonError('El archivo no es una imagen JPG, PNG o WebP válida.');
-   key=`${crypto.randomUUID()}.${ext}`;await bucket.put(`products/${key}`,bytes,{httpMetadata:{contentType:type}});
+   let bytes:Uint8Array;try{bytes=await processProductImage(new Uint8Array(await file.arrayBuffer()),env.IMAGES,['localhost','127.0.0.1'].includes(new URL(env.SITE_ORIGIN||'https://invalid').hostname))}catch{return jsonError('No se pudo validar la foto. Usa el formulario para cargar una imagen JPG, PNG o WebP válida.');}
+   key=`${crypto.randomUUID()}.jpg`;await bucket.put(`products/${key}`,bytes,{httpMetadata:{contentType:'image/jpeg'}});
   }else{return jsonError('Selecciona una fotografía para la prenda.');}
 
   await getDb().insert(inventoryOptions).values([...cleanSizes.map(name=>({kind:'size',name})),...cleanColors.map(name=>({kind:'color',name}))]).onConflictDoNothing();
@@ -38,12 +40,19 @@ export async function PATCH(req:NextRequest){
  else {if(!Number.isSafeInteger(data.quantity)||data.quantity!<0||data.quantity!>100000)return jsonError('Cantidad inválida.');const variant=variants.find(v=>v.color===data.color&&v.size===data.size);if(!variant)return jsonError('Variante no encontrada.',404);variant.quantity=data.quantity!}
  const updated=await db.update(inventoryProducts).set({price:Math.min(...variants.map(v=>v.price??row.price)),variantsJson:JSON.stringify(variants),version:sql`${inventoryProducts.version}+1`}).where(and(eq(inventoryProducts.id,row.id),eq(inventoryProducts.version,row.version))).returning({id:inventoryProducts.id});
  return updated.length?NextResponse.json({ok:true}):jsonError('El inventario cambió. Actualiza la página.',409)
- }catch{return jsonError('No se pudo actualizar el inventario.',500)}
+ }catch{return jsonError('No se pudo actualizar. No se pueden quitar variantes vinculadas a pedidos activos.',409)}
 }
 export async function DELETE(req:NextRequest){
  if(!await authorized(req)||!sameOrigin(req))return jsonError('No autorizado.',403);
  try{const data=await req.json() as {id:number;version:number};if(!Number.isSafeInteger(data.id)||!Number.isSafeInteger(data.version))return jsonError('Datos inválidos.');
  const removed=await getDb().delete(inventoryProducts).where(and(eq(inventoryProducts.id,data.id),eq(inventoryProducts.version,data.version))).returning({image:inventoryProducts.imageKey});if(!removed.length)return jsonError('La prenda cambió o ya fue eliminada. Actualiza el inventario.',409);
  if(removed[0].image&&env.BUCKET)await env.BUCKET.delete(`products/${removed[0].image}`).catch(()=>{});return NextResponse.json({ok:true});
- }catch{return jsonError('No se pudo eliminar la prenda.',500)}
+ }catch{return jsonError('No se pudo eliminar: puede estar vinculada a pedidos activos. Cancela o retira esos pedidos primero.',409)}
+}
+
+export async function GET(req:NextRequest){
+ if(!await authorized(req,'inventory.read'))return jsonError('No autorizado.',403);
+ await releaseExpiredReservations();
+ const result=await env.DB!.prepare("SELECT l.product_id AS productId,l.color,l.size,SUM(l.quantity) AS reserved FROM order_lines l JOIN orders o ON o.id=l.order_id WHERE l.reservation_state='reserved' AND o.deleted_at IS NULL GROUP BY l.product_id,l.color,l.size").all();
+ return NextResponse.json(result.results,{headers:{'Cache-Control':'no-store'}});
 }
