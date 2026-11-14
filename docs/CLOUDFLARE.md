@@ -34,7 +34,7 @@ Cloudflare; no uses la URL anterior de ChatGPT. Puede ser un Worker inicialmente
 sin configurar: la autenticación falla cerrada mientras SITE_ORIGIN no exista.
 
 Crea el administrador con el procedimiento del README, con el mismo AUTH_PEPPER,
-y ejecuta `admin:create --remote`. Los hashes se guardan en D1. No se sube admin/admin.
+y ejecuta `admin:create --remote` una sola vez para el administrador principal. Después crea las cuentas internas en Usuarios dentro del panel. Los hashes se guardan en D1. No se sube admin/admin.
 
 ## 3. Compilar y desplegar
 
@@ -45,6 +45,8 @@ npx --yes pnpm@11.25.0 run deploy
 La compilación genera `dist/server/wrangler.json` y los assets en `dist/client`.
 El despliegue usa ese archivo generado, no un index.html aislado ni Cloudflare Pages
 estático. Workers ejecuta las API y usa los bindings DB y BUCKET.
+
+La configuración incluye el binding IMAGES para reprocesar las fotos con Cloudflare Images y un cron cada 15 minutos para liberar reservas vencidas. Comprueba que Images Free esté disponible en tu cuenta; las cuotas de transformación son independientes de D1/R2. No se activa un plan de pago desde el código.
 
 No necesitas dominio propio. Si cambia el origen, actualiza SITE_ORIGIN y vuelve
 a iniciar sesión. La configuración no agrega CI/CD ni tokens de Cloudflare a GitHub.
