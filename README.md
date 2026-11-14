@@ -52,7 +52,7 @@ La adaptación remota está prevista para una D1 nueva e independiente.
 
 ## Crear el administrador
 
-No existe admin/admin ni una cuenta que se cree al visitar la web. Ejecuta en Bash:
+Solo existe un administrador principal. No existe admin/admin ni una cuenta que se cree al visitar la web. El comando siguiente crea al principal una sola vez; las demás cuentas se crean desde Usuarios en el panel con permisos explícitos. Ejecuta en Bash:
 
 ```sh
 export ADMIN_USERNAME="admin"
@@ -89,11 +89,17 @@ npx --yes pnpm@11.25.0 run build
 ```
 
 `npx --yes pnpm@11.25.0 run test:api` inicia el servidor y verifica el flujo API contra un servidor local en 127.0.0.1:5174,
-con SITE_ORIGIN igual en `.dev.vars`. Requiere migraciones y `.dev.vars`; crea cuentas de prueba
-solo en la D1 local. Nunca permite un destino remoto. La prueba agrega/elimina una
+con SITE_ORIGIN igual en `.dev.vars`. Requiere `.dev.vars`; aplica las migraciones y crea cuentas de prueba en un estado temporal aislado, que se elimina al terminar. Nunca permite un destino remoto. La prueba agrega/elimina una
 prenda y pedido de prueba, comprueba precios y revocación de sesión.
 
 ## Desplegar y retirar
 
 Consulta [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md).
 Consulta [docs/CAMBIOS.md](docs/CAMBIOS.md) para decisiones, límites y lista de cambios.
+
+## Pedidos, usuarios y fotos
+
+Consulta [docs/OPERACIONES.md](docs/OPERACIONES.md) para reserva de 24 horas,
+idempotencia persistente, permisos internos, cambio de contraseña y proceso de imágenes.
+El carrito y la clave de reintento son las únicas persistencias de navegador; nunca
+guardan datos de contacto, contraseñas, precios ni sesiones. No hay cuentas de clientes.
