@@ -13,12 +13,12 @@ const salt=randomBytes(16).toString('hex');
 const material=createHmac('sha256',AUTH_PEPPER).update(ADMIN_PASSWORD).digest();
 const hash=pbkdf2Sync(material,salt,100000,32,'sha256').toString('hex');
 const quote=value=>`'${String(value).replaceAll("'","''")}'`;
-const sql=`INSERT INTO users (id,username,email,password_salt,password_hash,password_iterations,role,active,created_at) VALUES (${[randomUUID(),username,email,salt,hash].map(quote).join(',')},100000,'admin',1,${quote(new Date().toISOString())});`;
+const sql=`INSERT INTO users (id,username,email,password_salt,password_hash,password_iterations,role,active,created_at) VALUES (${[randomUUID(),username,email,salt,hash].map(quote).join(',')},100000,'owner',1,${quote(new Date().toISOString())});`;
 const dir=await mkdtemp(path.join(tmpdir(),'pazarella-admin-'));
 try{
  const file=path.join(dir,'admin.sql');await writeFile(file,sql,{mode:0o600});
  const remote=process.argv.includes('--remote');
- const result=spawnSync(process.execPath,['node_modules/wrangler/bin/wrangler.js','d1','execute','DB',remote?'--remote':'--local','--config','wrangler.jsonc',...(!remote?['--persist-to','.wrangler/state']:[]),'--file',file],{stdio:'inherit',env:{...process.env,ADMIN_PASSWORD:undefined,AUTH_PEPPER:undefined}});
+ const result=spawnSync(process.execPath,['node_modules/wrangler/bin/wrangler.js','d1','execute','DB',remote?'--remote':'--local','--config','wrangler.jsonc',...(!remote?['--persist-to',process.env.TEST_STATE_DIR||'.wrangler/state']:[]),'--file',file],{stdio:'inherit',env:{...process.env,ADMIN_PASSWORD:undefined,AUTH_PEPPER:undefined}});
  if(result.error)throw result.error;if(result.status!==0)process.exitCode=result.status??1;
  else console.log('Administrador creado. No se ha guardado la contraseña en texto plano.');
 }finally{await rm(dir,{recursive:true,force:true})}
