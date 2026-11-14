@@ -23,3 +23,18 @@ test('sessions use unpredictable tokens and store only their hash',async()=>{
  assert.notEqual(await tokenHash(a),a);assert.notEqual(await tokenHash(a),await tokenHash(b));
  assert.equal(await tokenHash(a),await tokenHash(a));
 });
+
+import jpeg from 'jpeg-js';
+import {sanitizeProductImage} from '../lib/image-upload.ts';
+import {hasPermission,validPermissions} from '../lib/permissions.ts';
+test('images are decoded and regenerated; forged signatures and appended payload are rejected or removed',()=>{
+ const jpegBytes=jpeg.encode({width:1,height:1,data:new Uint8Array([255,255,255,255])},85).data;
+ const original=Buffer.concat([jpegBytes,Buffer.from('APPENDED_PRIVATE_PAYLOAD')]);
+ const clean=sanitizeProductImage(original);assert.equal(Buffer.from(clean).includes(Buffer.from('APPENDED_PRIVATE_PAYLOAD')),false);
+ assert.throws(()=>sanitizeProductImage(new Uint8Array([255,216,255])));assert.throws(()=>sanitizeProductImage(new Uint8Array(3000001)));
+});
+test('permissions are explicit and owner capabilities cannot be granted through a permission string',()=>{
+ assert.deepEqual(validPermissions(['orders.manage']),['orders.manage','orders.read']);assert.equal(validPermissions(['owner']),null);
+ assert.equal(hasPermission({id:'x',username:'staff',role:'staff',permissions:['orders.read']},'orders.manage'),false);
+ assert.equal(hasPermission({id:'x',username:'owner',role:'owner',permissions:[]},'inventory.manage'),true);
+});
