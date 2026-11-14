@@ -17,7 +17,7 @@
 - `lib/password.ts`: PBKDF2-SHA256 (100.000 iteraciones), sal individual y HMAC previo
   con pepper secreto del servidor. Tokens aleatorios de 256 bits, almacenados por hash.
   Esta elección usa WebCrypto de Workers y evita añadir una dependencia nativa.
-- `lib/admin-auth.ts`: consulta sesiones y usuarios activos en D1; exige rol admin;
+- `lib/admin-auth.ts`: consulta sesiones y usuarios activos en D1; comprueba permisos de cada sección o rol owner;
   comprueba Origin con SITE_ORIGIN. Ya no confía en headers oai-authenticated-*.
 - `app/api/admin/session/route.ts`: login real contra D1, error genérico para usuario
   inexistente/contraseña errónea, cookie HttpOnly/SameSite Strict y Secure en HTTPS,
@@ -27,7 +27,7 @@
   no almacenan IP en claro. Login limitado por IP y usuario; pedidos por IP. Las
   cabeceras de IP son fiables solo detrás de Cloudflare; localhost usa un grupo local.
 - `scripts/create-admin.mjs`: alta explícita desde terminal autenticada con Wrangler;
-  no hay registro público, credencial predeterminada o endpoint de bootstrap abierto.
+  no hay registro público, credencial predeterminada o endpoint de bootstrap abierto. El alta por terminal crea solo al principal; un índice único impide un segundo owner.
   Exige contraseña de 12–128 caracteres. Los hashes y sal van a D1, pepper a secretos.
 - APIs de catálogo, categorías y fotos: lectura pública de información comercial,
   necesaria para compradores anónimos. Escritura/eliminación siguen exigiendo sesión
@@ -67,19 +67,28 @@ no participan ya en autenticación ni despliegue.
 
 - No se ha desplegado ni probado contra la cuenta Cloudflare del dueño; faltan ID D1,
   activar R2, secretos, alta del administrador y prueba remota.
-- No hay registro de compradores, recuperación de contraseña, MFA ni interfaz de
-  gestión de usuarios. users permite varias cuentas admin creadas desde terminal.
-- PBKDF2 100.000 + pepper mejora el diseño anterior y encaja con el runtime instalado,
-  pero no sustituye MFA o un proveedor de identidad si aumenta el riesgo.
-- Inventario: los pedidos pendientes verifican cantidades pero NO reservan/descuentan
-  stock. Se mantiene el comportamiento anterior; resolver concurrencia de ventas
-  requiere un cambio separado antes de operar como ecommerce definitivo.
-- No hay idempotencia persistente de pedidos. Desactivar el botón evita clics comunes,
-  pero no garantiza ausencia de duplicados ante reintentos de red.
-- La validación de fotos sigue siendo tamaño y firma de archivo; no decodifica/reprocesa
-  la imagen ni hace análisis de contenido. Es un endurecimiento pendiente.
-- El limitador en D1 añade lecturas/escrituras. Es suficiente para pruebas pequeñas;
-  para mayor escala conviene un limitador de plataforma y vigilancia de cuotas.
-- La primera prueba de integración usa emulación D1/R2 del runtime; no representa por
-  sí sola despliegue remoto, costos, disponibilidad ni el comportamiento de WhatsApp.
+- No hay cuentas de compradores ni recuperación pública de contraseña: por diseño, solo el owner puede restablecer contraseñas dentro del panel, revalidando su contraseña. No hay MFA.
+- PBKDF2 + pepper no sustituye MFA o un proveedor de identidad si aumenta el riesgo.
+- La subida remota usa el binding IMAGES. Las pruebas locales verifican el decodificador JPEG de desarrollo; el servicio nativo debe comprobarse en la cuenta de Cloudflare.
+- El limitador en D1 añade lecturas/escrituras; conviene vigilar las cuotas.
 - No se puede prometer costo cero sin vigilar cuotas y configuración del plan.
+
+## Segunda fase: reservas, idempotencia y personal interno
+
+Detalle completo en docs/OPERACIONES.md. Se añaden la migración 0005 (incluidos triggers
+SQLite), líneas de reserva, clave/hash de solicitud, vencimiento y retirada lógica de
+pedidos, rol único owner, cuentas staff y permisos explícitos. Se incorporan el panel
+Usuarios, el endpoint protegido de usuarios, cambio de contraseña con reautenticación
+del principal y revocación de sesiones. La tabla de inventario distingue disponibles
+y reservadas. Las fotos ahora se optimizan en el navegador y se reprocesan en servidor.
+
+Las reservas son atómicas con la creación del pedido usando D1 batch y triggers que
+aborten ante insuficiencia de stock o cambio de precio. La clave de idempotencia tiene
+índice único y se conserva al retirar el pedido; no se acepta un cuerpo diferente con
+la misma clave. No se elimina el historial de venta al retirar un pedido pagado.
+
+La dependencia nueva jpeg-js se usa para validar/reprocesar JPEG en el entorno local;
+producción usa Cloudflare Images para no consumir CPU de Worker con codificación JS.
+Los tests de API ahora crean una D1/R2 temporal aislada y no modifican la D1 local de
+trabajo. Se prueban concurrencia, reintentos simultáneos, liberación por cancelación y
+vencimiento, permisos, restablecimiento de contraseña y revocación de la sesión afectada.
