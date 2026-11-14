@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
 import { orders, inventoryProducts } from '@/db/schema';
+import {sameOrigin} from '@/lib/admin-auth';
+import {rateLimit} from '@/lib/rate-limit';
 import { eq } from 'drizzle-orm';
 import type { Variant } from '@/lib/catalog';
-import { getChatGPTUser } from '@/app/chatgpt-auth';
 
 export async function POST(req: NextRequest) {
-  // The current prototype is owner-private. Do not expose this endpoint publicly
-  // without a separate public-store security and abuse-prevention design.
-  if (!await getChatGPTUser()) return NextResponse.json({error:'No autorizado.'},{status:401});
-  if (req.headers.get('origin') !== new URL(req.url).origin) return NextResponse.json({error:'Solicitud no autorizada.'},{status:403});
+  if (!sameOrigin(req)) return NextResponse.json({error:'Solicitud no autorizada.'},{status:403});
   try {
+    if(Number(req.headers.get('content-length')||0)>16000)return NextResponse.json({error:'Solicitud demasiado grande.'},{status:413});
+    if(!await rateLimit('orders',req.headers.get('cf-connecting-ip')||'local',20,60*60*1000))return NextResponse.json({error:'Demasiados pedidos. Intenta más tarde.'},{status:429});
     const raw = await req.json();
     if (!raw || typeof raw !== 'object') throw new Error('invalid request');
     const data = raw as {name?:string;address?:string;phone?:string;method?:string;items?:unknown};
