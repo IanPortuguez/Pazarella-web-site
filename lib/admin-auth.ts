@@ -3,6 +3,7 @@ import type {NextRequest} from 'next/server';
 import {and,eq,gt,lt} from 'drizzle-orm';
 import {getDb} from '@/db';
 import {sessions,users} from '@/db/schema';
+import {hasPermission,type Permission} from './permissions';
 import {randomToken,tokenHash} from './password';
 export const SESSION_COOKIE = 'paz_admin';
 export const SESSION_SECONDS = 8 * 60 * 60;
@@ -18,13 +19,14 @@ export function secureCookie() {
 export async function sessionUser(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
-  const [row] = await getDb().select({id:users.id,username:users.username,role:users.role})
+  const [row] = await getDb().select({id:users.id,username:users.username,role:users.role,permissionsJson:users.permissionsJson})
     .from(sessions).innerJoin(users,eq(sessions.userId,users.id))
     .where(and(eq(sessions.tokenHash,await tokenHash(token)),gt(sessions.expiresAt,Date.now()),eq(users.active,true)));
-  return row ?? null;
+  if(!row)return null;
+  return {id:row.id,username:row.username,role:row.role,permissions:JSON.parse(row.permissionsJson) as string[]};
 }
-export async function authorized(req: NextRequest) {
-  return (await sessionUser(req))?.role === 'admin';
+export async function authorized(req: NextRequest,permission:Permission='inventory.manage') {
+  return hasPermission(await sessionUser(req),permission);
 }
 export async function createSession(userId: string) {
   const token = randomToken();
